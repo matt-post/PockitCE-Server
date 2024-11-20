@@ -1,12 +1,12 @@
 [submodule "inc/Crow"]
 	path = inc/Crow
 	url = https://github.com/CrowCpp/Crow.git
-[submodule "inc/sqlite3"]
-	path = inc/sqlite3
-	url = https://github.com/sqlite/sqlite.git
 [submodule "inc/lua"]
 	path = inc/lua
 	url = https://github.com/lua/lua.git
 [submodule "inc/asio"]
 	path = inc/asio
 	url = https://github.com/chriskohlhoff/asio.git
+[submodule "inc/sqlite3"]
+	path = inc/sqlite3
+	url = https://github.com/LuaDist/libsqlite3.git
