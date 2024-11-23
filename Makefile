@@ -22,6 +22,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
+	rm -rf 	apps.db test_lua
 
 run: $(TARGET)
 	./$(TARGET)

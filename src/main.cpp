@@ -3,7 +3,45 @@
 #include <lua.hpp>
 #include <iostream>
 #include <string>
-#include <fstream>
+#include <map>
+#include <vector>
+#include <cstdlib>
+
+const std::string red = "\033[31m";
+const std::string green = "\033[32m";
+const std::string blue = "\033[34m";
+const std::string reset = "\033[0m";
+
+struct Block {
+    std::string type;
+    std::string name;
+    int x, y;
+    std::map<std::string, std::string> properties;
+};
+
+std::vector<Block> board{
+    {"slider", "slider1", 0, 0, {{"value", "0"}}},
+    {"button", "button1", 1, 0, {{"pressed", "false"}}},
+    {"knob", "knob1", 2, 0, {{"angle", "0"}}},
+    {"led", "led1", 0, 1, {{"state", "off"}}},
+    {"eink", "eink1", 1, 1, {{"text", "Hello"}}},
+    {"buzzer", "buzzer1", 2, 1, {{"state", "silent"}}}
+};
+
+std::string getLocalIP() {
+    char buffer[128];
+    std::string result = "";
+    FILE* pipe = popen("hostname -I | awk '{print $1}'", "r");
+    if (!pipe) {
+        return "127.0.0.1";
+    }
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        result += buffer;
+    }
+    pclose(pipe);
+    result.erase(result.find_last_not_of(" \n\r\t") + 1);
+    return result;
+}
 
 void initializeDatabase() {
     sqlite3* db;
@@ -11,7 +49,7 @@ void initializeDatabase() {
 
     int rc = sqlite3_open("apps.db", &db);
     if (rc != SQLITE_OK) {
-        std::cerr << "Cannot open database: " << sqlite3_errmsg(db) << std::endl;
+        std::cerr << red << "Cannot open database: " << sqlite3_errmsg(db) << reset << std::endl;
         sqlite3_close(db);
         exit(1);
     }
@@ -26,11 +64,12 @@ void initializeDatabase() {
 
     rc = sqlite3_exec(db, sql, nullptr, nullptr, &errMsg);
     if (rc != SQLITE_OK) {
-        std::cerr << "SQL error: " << errMsg << std::endl;
+        std::cerr << red << "SQL error: " << errMsg << reset << std::endl;
         sqlite3_free(errMsg);
     }
 
     sqlite3_close(db);
+    std::cout << green << "Database initialized successfully." << reset << std::endl;
 }
 
 bool saveScriptToDatabase(const std::string& name, const std::string& script) {
@@ -38,7 +77,7 @@ bool saveScriptToDatabase(const std::string& name, const std::string& script) {
 
     int rc = sqlite3_open("apps.db", &db);
     if (rc != SQLITE_OK) {
-        std::cerr << "Cannot open database: " << sqlite3_errmsg(db) << std::endl;
+        std::cerr << red << "Cannot open database: " << sqlite3_errmsg(db) << reset << std::endl;
         sqlite3_close(db);
         return false;
     }
@@ -48,7 +87,7 @@ bool saveScriptToDatabase(const std::string& name, const std::string& script) {
 
     rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) {
-        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << std::endl;
+        std::cerr << red << "Failed to prepare statement: " << sqlite3_errmsg(db) << reset << std::endl;
         sqlite3_close(db);
         return false;
     }
@@ -58,7 +97,7 @@ bool saveScriptToDatabase(const std::string& name, const std::string& script) {
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
-        std::cerr << "Failed to execute statement: " << sqlite3_errmsg(db) << std::endl;
+        std::cerr << red << "Failed to execute statement: " << sqlite3_errmsg(db) << reset << std::endl;
     }
 
     sqlite3_finalize(stmt);
@@ -70,67 +109,128 @@ bool saveScriptToDatabase(const std::string& name, const std::string& script) {
 int luaopen_pockitce(lua_State* L) {
     lua_newtable(L);
 
-    lua_newtable(L);
-    lua_newtable(L);
-    lua_pushstring(L, "slider action!"); lua_setfield(L, -2, "doSomething");
-    lua_setfield(L, -2, "slider");
+    lua_pushcfunction(L, [](lua_State* L) -> int {
+        int x = lua_tointeger(L, 1);
+        int y = lua_tointeger(L, 2);
+        const char* property = lua_tostring(L, 3);
+        const char* value = lua_tostring(L, 4);
 
-    lua_newtable(L);
-    lua_pushstring(L, "button pressed!"); lua_setfield(L, -2, "press");
-    lua_setfield(L, -2, "button");
+        for (auto& block : board) {
+            if (block.x == x && block.y == y) {
+                block.properties[property] = value;
+                lua_pushstring(L, "Property updated");
+                return 1;
+            }
+        }
+        lua_pushstring(L, "Block not found");
+        return 1;
+    });
+    lua_setfield(L, -2, "updateBlock");
 
-    lua_newtable(L);
-    lua_pushstring(L, "knob turned!"); lua_setfield(L, -2, "turn");
-    lua_setfield(L, -2, "knob");
+    lua_pushcfunction(L, [](lua_State* L) -> int {
+        lua_newtable(L);
+        for (size_t i = 0; i < board.size(); ++i) {
+            lua_pushinteger(L, i + 1);
+            lua_newtable(L);
 
-    lua_setfield(L, -2, "input");
+            lua_pushstring(L, "type"); lua_pushstring(L, board[i].type.c_str()); lua_settable(L, -3);
+            lua_pushstring(L, "name"); lua_pushstring(L, board[i].name.c_str()); lua_settable(L, -3);
+            lua_pushstring(L, "x"); lua_pushinteger(L, board[i].x); lua_settable(L, -3);
+            lua_pushstring(L, "y"); lua_pushinteger(L, board[i].y); lua_settable(L, -3);
 
-    lua_newtable(L);
-    lua_newtable(L);
-    lua_pushstring(L, "LED toggled!"); lua_setfield(L, -2, "toggle");
-    lua_setfield(L, -2, "led");
+            lua_newtable(L);
+            for (const auto& prop : board[i].properties) {
+                lua_pushstring(L, prop.first.c_str());
+                lua_pushstring(L, prop.second.c_str());
+                lua_settable(L, -3);
+            }
+            lua_setfield(L, -2, "properties");
 
-    lua_newtable(L);
-    lua_pushstring(L, "eInk updated!"); lua_setfield(L, -2, "update");
-    lua_setfield(L, -2, "eink");
+            lua_settable(L, -3);
+        }
+        return 1;
+    });
+    lua_setfield(L, -2, "getBlocks");
 
-    lua_setfield(L, -2, "display");
+    lua_pushcfunction(L, [](lua_State* L) -> int {
+        const char* name = lua_tostring(L, 1);
 
-    lua_newtable(L);
-    lua_newtable(L);
-    lua_pushstring(L, "Buzzer sound!"); lua_setfield(L, -2, "buzz");
-    lua_setfield(L, -2, "buzzer");
+        for (auto& block : board) {
+            if (block.name == name) {
+                lua_newtable(L);
 
-    lua_setfield(L, -2, "sound");
+                lua_pushstring(L, "type"); lua_pushstring(L, block.type.c_str()); lua_settable(L, -3);
+                lua_pushstring(L, "name"); lua_pushstring(L, block.name.c_str()); lua_settable(L, -3);
+                lua_pushstring(L, "x"); lua_pushinteger(L, block.x); lua_settable(L, -3);
+                lua_pushstring(L, "y"); lua_pushinteger(L, block.y); lua_settable(L, -3);
 
-    lua_setfield(L, -2, "blocks");
+                lua_newtable(L);
+                for (const auto& prop : block.properties) {
+                    lua_pushstring(L, prop.first.c_str());
+                    lua_pushstring(L, prop.second.c_str());
+                    lua_settable(L, -3);
+                }
+                lua_setfield(L, -2, "properties");
+
+                return 1;
+            }
+        }
+
+        lua_pushnil(L);
+        return 1;
+    });
+    lua_setfield(L, -2, "getBlockByName");
+
+    lua_pushcfunction(L, [](lua_State* L) -> int {
+        const char* name = lua_tostring(L, 1);
+        const char* property = lua_tostring(L, 2);
+        const char* value = lua_tostring(L, 3);
+
+        for (auto& block : board) {
+            if (block.name == name) {
+                block.properties[property] = value;
+                lua_pushstring(L, "Property updated");
+                return 1;
+            }
+        }
+
+        lua_pushstring(L, "Block not found");
+        return 1;
+    });
+    lua_setfield(L, -2, "updateBlockByName");
 
     return 1;
 }
 
+void runLuaScript(const std::string& script) {
+    lua_State* L = luaL_newstate();
+    luaL_openlibs(L);
+    luaL_requiref(L, "pockitce", luaopen_pockitce, 1);
+    lua_pop(L, 1);
+
+    if (luaL_dostring(L, script.c_str())) {
+        std::cerr << red << "Lua Error: " << lua_tostring(L, -1) << reset << std::endl;
+        lua_pop(L, 1);
+    }
+
+    lua_close(L);
+}
+
 int main() {
     initializeDatabase();
-    
+
     httplib::Server svr;
 
-    // Upload route for saving script to the database
     svr.Post("/upload", [](const httplib::Request& req, httplib::Response& res) {
         auto body = req.body;
 
-        // Parse the JSON payload manually
         std::string name, script;
-        if (body.find("name") == std::string::npos || body.find("script") == std::string::npos) {
-            res.status = 400;
-            res.set_content("Invalid request payload.", "text/plain");
-            return;
-        }
-
         size_t name_start = body.find("\"name\":\"") + 8;
         size_t name_end = body.find("\"", name_start);
         name = body.substr(name_start, name_end - name_start);
 
         size_t script_start = body.find("\"script\":\"") + 10;
-        size_t script_end = body.find("\"", script_start);
+        size_t script_end = body.find_last_of("\"");
         script = body.substr(script_start, script_end - script_start);
 
         if (saveScriptToDatabase(name, script)) {
@@ -142,26 +242,41 @@ int main() {
         }
     });
 
-    // Test route for lua script execution
-    svr.Get("/test_pockitce", [](const httplib::Request& req, httplib::Response& res) {
-        lua_State* L = luaL_newstate();
-        luaL_openlibs(L);
+    svr.Post("/run", [](const httplib::Request& req, httplib::Response& res) {
+        auto body = req.body;
+        size_t script_start = body.find("\"script\":\"") + 10;
+        size_t script_end = body.find_last_of("\"");
+        std::string script = body.substr(script_start, script_end - script_start);
 
-        luaL_requiref(L, "pockitce", luaopen_pockitce, 1);
-        lua_pop(L, 1);
-
-        luaL_dostring(L, R"(
-            local pockitce = require("pockitce")
-            print(pockitce.blocks.input.slider.doSomething)
-            print(pockitce.blocks.display.led.toggle)
-            print(pockitce.blocks.sound.buzzer.buzz)
-        )");
-
-        lua_close(L);
+        runLuaScript(script);
         res.status = 200;
-        res.set_content("pockitce module tested. Check logs for output.", "text/plain");
+        res.set_content("Script executed. Check server logs for output.", "text/plain");
     });
 
-    svr.listen("localhost", 8080);
+    svr.Get("/test_lua", [](const httplib::Request& req, httplib::Response& res) {
+        runLuaScript(R"(
+            local pockitce = require("pockitce")
+            print("Initial board state:")
+            local blocks = pockitce.getBlocks()
+            for i, block in ipairs(blocks) do
+                print(block.type, block.name, "at", block.x, block.y)
+                for prop, val in pairs(block.properties) do
+                    print("  " .. prop .. ": " .. val)
+                end
+            end
+            pockitce.updateBlock(0, 0, "value", "42")
+            print("Updated block at (0,0):")
+            local updatedBlocks = pockitce.getBlocks()
+            print(updatedBlocks[1].properties.value)
+        )");
+        res.set_content("Lua test script executed. Check logs for outputs.", "text/plain");
+    });
+
+    {std::string ip = getLocalIP();
+    std::cout << green << "PockitCE server started on port 8080 on IP " << ip << reset << std::endl;}
+    std::cout << blue << "Credit to the PockitCE Team 2024, All Rights Reserved" << reset << std::endl;
+    std::cout << red << "Hello from Canada - mattpost" << reset << std::endl;
+
+    svr.listen("0.0.0.0", 8080);
     return 0;
 }
